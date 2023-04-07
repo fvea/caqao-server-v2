@@ -74,7 +74,6 @@ def assess():
 
 
 @app.route("/save_results", methods=["POST"])
-@jwt_required()
 def save_results():
 
     if request.method == "POST":
@@ -83,7 +82,7 @@ def save_results():
         image_src_url = str(request.form["imgSrcUrl"])
         filename = os.path.basename(urlparse(image_src_url).path)
 
-        user_id = get_jwt_identity()
+        user_id = 1
 
         temp_detection = TempDetection.query.filter_by(filename=filename).first()
         detection = Detection(
@@ -114,13 +113,21 @@ def save_results():
         db.session.commit()
 
         return "Assessment Results Saved", 200
+    
+
+@app.route('/get_detection_with_id', methods=["POST"])
+def get_detection_with_id():
+    if request.method == "POST":
+        id = int(request.form["cacaoDetectionId"])
+        detection = Detection.query.filter_by(id=id).first()
+        return get_json_response(detection)
 
 
 @app.route('/detections')
 def get_detections():
 
     user_id = 1
-    detections = Detection.query.filter_by(user_id=user_id).all()
+    detections = Detection.query.filter_by(user_id=user_id).order_by(Detection.date.desc()).all()
 
     detection_list = [
         {'id': detection.id, \
