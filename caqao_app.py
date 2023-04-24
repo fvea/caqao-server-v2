@@ -1,9 +1,10 @@
-from flask import Flask, request, send_file, jsonify
-from werkzeug.security import check_password_hash, generate_password_hash
+from flask import Flask, request, send_file, jsonify, make_response
+from werkzeug.security import generate_password_hash, check_password_hash
+from functools import wraps
 from PIL import Image
 import socket
-from flask_jwt_extended import JWTManager, jwt_required, get_jwt_identity, create_access_token
-
+import datetime
+import jwt
 
 from urllib.parse import urlparse
 import torch
@@ -13,7 +14,7 @@ import os
 import secrets
 import uuid
 import random
-
+import tensorflow as tf
 
 from db import db_init, db
 from model import Detection, TempDetection, User
@@ -26,13 +27,13 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///detections.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db_init(app)
 
-jwt = JWTManager(app)
-
 app.config.update(SESSION_COOKIE_SAMESITE="None", SESSION_COOKIE_SECURE=True)
 
 MAX_DET = 50
 model = torch.hub.load('ultralytics/yolov5', 'custom', path="best.pt", force_reload=True)
 model.max_det = MAX_DET
+
+cacao_image_classifier = tf.keras.models.load_model('xception_v2.h5')
 
 @app.route("/assess", methods=["POST"])
 def assess():
@@ -44,6 +45,19 @@ def assess():
         image_bytes = image_file.read()
         image = Image.open(io.BytesIO(image_bytes))
         bean_size = int(request.form["beanSize"])
+
+        # check if image is a cacao beans in a guillotine
+        if not is_cacao(image):
+            # temporarily save the detection result
+            temp_detection = TempDetection(
+                image=image_bytes,
+                mimetype=image_file.mimetype,
+                filename=str(uuid.uuid4()) + str(random.randint(1, 10000)) + '.jpg',
+                beanGrade="--",
+            )
+            db.session.add(temp_detection)
+            db.session.commit()
+            return get_json_response(temp_detection)
 
         # reduce size=640 for faster inference
         results = model(image, size=640)
@@ -72,9 +86,26 @@ def assess():
 
     return get_json_response(temp_detection)
 
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = None
+        if 'x-access-token' in request.headers:
+            token = request.headers['x-access-token']
+            print(token)
+        if not token:
+            return jsonify({'message' : 'Token is missing!'}), 401
+        try: 
+            current_user = User.query.filter_by(public_id=request.headers['x-access-token']).first()
+            print(current_user.id)
+        except:
+            return jsonify({'message' : 'Token is invalid!'}), 401
+        return f(current_user, *args, **kwargs)
+    return decorated
 
 @app.route("/save_results", methods=["POST"])
-def save_results():
+@token_required
+def save_results(current_user):
 
     if request.method == "POST":
         # save the temporary detection to main detection table
@@ -82,7 +113,7 @@ def save_results():
         image_src_url = str(request.form["imgSrcUrl"])
         filename = os.path.basename(urlparse(image_src_url).path)
 
-        user_id = 1
+        user_id = current_user.id
 
         temp_detection = TempDetection.query.filter_by(filename=filename).first()
         detection = Detection(
@@ -113,22 +144,21 @@ def save_results():
         db.session.commit()
 
         return "Assessment Results Saved", 200
-    
 
 @app.route('/get_detection_with_id', methods=["POST"])
-def get_detection_with_id():
+@token_required
+def get_detection_with_id(current_user):
     if request.method == "POST":
         id = int(request.form["cacaoDetectionId"])
-        detection = Detection.query.filter_by(id=id).first()
+        detection = Detection.query.filter_by(user_id=current_user.id, id=id).first()
         return get_json_response(detection)
 
 
 @app.route('/detections')
-def get_detections():
-
-    user_id = 1
+@token_required
+def get_detections(current_user):
+    user_id = current_user.id
     detections = Detection.query.filter_by(user_id=user_id).order_by(Detection.date.desc()).all()
-
     detection_list = [
         {'id': detection.id, \
          'img_src_url': f"http://{FLASK_IP_ADDR}:5000/detections/{detection.filename}", \
@@ -156,86 +186,79 @@ def get_image(filename):
 
     return send_file(io.BytesIO(detection.image), mimetype=detection.mimetype, download_name=detection.filename)
 
-@app.route('/recent_detections')
-@jwt_required()
-def get_recent_detections():
-
-    user_id = get_jwt_identity()
-
-    query = Detection.query.filter_by(user_id=user_id).order_by(Detection.date.desc())
-
-    # get the first five recent detections
-    records = query[:5]
-
-    detection_list = [
-        {'id': detection.id, \
-         'img_src_url': f"http://{FLASK_IP_ADDR}:5000/detections/{detection.filename}", \
-         'g1': detection.g1, \
-         'g2': detection.g2, \
-         'g3': detection.g3, \
-         'g4': detection.g4, \
-         'veryDarkBrown': detection.veryDarkBrown, \
-         'brown': detection.brown, \
-         'partlyPurple': detection.partlyPurple, \
-         'totalPurple': detection.totalPurple, \
-         'mouldy': detection.mouldy, \
-         'insectInfested': detection.insectDamaged, \
-         'slaty': detection.slaty,\
-         'germinated': detection.germinated, \
-         'beanGrade': detection.beanGrade, \
-         'date': detection.date } for detection in records]
+@app.route('/validate_image', methods=['POST'])
+def validate_image():
     
-    return jsonify(detection_list)
+    # get cacao beans image and bean size from request
+    image_file = request.files.get("image")
+    image_bytes = image_file.read()
+    image = Image.open(io.BytesIO(image_bytes))
 
+    # check if image is a cacao beans in a guillotine
+    if not is_cacao(image):
+        response = {
+            "message": "Invalid Image: Image must contain cacao beans in a guillotine.",
+            "status": 400
+        }
+        return jsonify(response)
 
-# define endpoint for creating a new user account
-@app.route('/create_user', methods=['POST'])
+    else:
+        response = {
+            "message": "Valid Image",
+            "status": 200
+        }
+        return jsonify(response)
+    
+            
+@app.route('/register', methods=['POST'])
 def create_user():
+    data = request.get_json()
+    hashed_password = generate_password_hash(data['password'], method='sha256')
+
+    if is_username_exists(data['username']):
+        # username is already taken
+       return jsonify({'message' : 'Username is already taken.', 'status': 401})
     
-    # get user information from request body
-    first_name = str(request.form["firstName"])
-    last_name = str(request.form["lastName"])
-    username = str(request.form["username"])
-    email = str(request.form["email"])
-    password = generate_password_hash(str(request.form["password"]))    
-
-    # save user data to database
+    if is_user_email_exists(data['email']):
+        # email is already taken
+        return jsonify({'message' : 'Email is already taken.', 'status': 402})
+    
+    # create and add new user to database
     new_user = User(
-        first_name=first_name,
-        last_name=last_name,
-        username=username,
-        email=email,
-        password=password
-    )
-
-    # add the new record to the database session and commit the changes
+        public_id=str(uuid.uuid4()), 
+        first_name=data['first_name'], 
+        last_name=data['last_name'],
+        email=data['email'],
+        username=data['username'],
+        password=hashed_password)
     db.session.add(new_user)
     db.session.commit()
 
-    # return success message
-    return jsonify({'message': 'User account created successfully'}), 201
-
-
+    return jsonify({'message' : 'New user created!', 'status': 200})
+    
 @app.route('/login', methods=['POST'])
 def login():
 
-    username = str(request.form.get('username'))
-    password = str(request.form.get('password'))
+    # get authentication data
+    auth = request.get_json()
 
-    # Verify user credentials
-    user = User.query.filter_by(username=username).first()
-    if user and check_password_hash(user.password, password):
-        # Generate access token
-        access_token = create_access_token(identity=user.id)
-        return jsonify({'access_token': access_token, 'status': 200})
-    else:
-        return jsonify({'access_token': '--', 'status': 401})
+    # get user data from database
+    user = User.query.filter_by(username=auth['username']).first()
+
+    if not user:
+        return jsonify({'message' : 'Wrong email or password', 'status': 401, 'token': ''})
+
+    # check if entered hashed password matches the hashed password in the database
+    if check_password_hash(user.password, auth['password']):
+        token = user.public_id
+        return jsonify({'message' : 'User Authenticated', 'status': 200, 'token': token})
+
+    return jsonify({'message' : 'Wrong email or password', 'status': 401, 'token': ''})
 
 
 @app.route('/')
 def index():
     return "CAQAO Server"
-
 
 def get_json_response(detection):
     json_response = {
@@ -257,7 +280,6 @@ def get_json_response(detection):
         "date": detection.date
     }
     return jsonify(json_response)
-
 
 def get_class_detection_counts(results):
     class_counts = {
@@ -326,7 +348,37 @@ def get_bean_grade(class_count, bean_size):
 
     return num_code + letter_code
 
+def is_cacao(img, threshold=0.95):
 
+    class_names = ['cacao', 'noncacao']
+    img_resized = img.resize((150, 150))
+
+    img_array = tf.keras.preprocessing.image.img_to_array(img_resized)
+    img_array = tf.expand_dims(img_array, 0) # create a bactch
+
+    # img_array = img_array.reshape(None, 150, 150, 3)
+
+    raw_prediction = cacao_image_classifier.predict(img_array)[0][0]
+    prediction = 1 if raw_prediction > threshold else 0
+    class_name = class_names[prediction]
+    confidence = (1 - raw_prediction) * 100 if prediction == 0 else (raw_prediction * 100)
+
+    return class_name == 'cacao'
+
+def is_username_exists(username):
+    user_via_username = User.query.filter_by(username=username).first()
+    if user_via_username:
+        return True
+    else:
+        return False
+    
+def is_user_email_exists(email):
+    user_via_email = User.query.filter_by(email=email).first()
+    if user_via_email:
+        return True
+    else:
+        return False
+    
 if __name__ == "__main__":
 
     hostname = socket.gethostname()
