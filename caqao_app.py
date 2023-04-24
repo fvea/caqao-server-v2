@@ -255,6 +255,21 @@ def login():
 
     return jsonify({'message' : 'Wrong email or password', 'status': 401, 'token': ''})
 
+@app.route('/delete', methods=['POST'])
+@token_required
+def delete_detection(current_user):
+    
+    record_id = int(request.form["cacaoDetectionId"])
+    user_id = current_user.id
+
+    detection = Detection.query.filter_by(id=record_id, user_id=user_id).first()
+
+    if detection is None:
+        return 'Record not found', 404
+    
+    db.session.delete(detection)
+    db.session.commit()
+    return 'Record deleted', 200
 
 @app.route('/')
 def index():
