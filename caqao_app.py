@@ -1,45 +1,90 @@
-from flask import Flask, request, send_file, jsonify, make_response
+# Load necessary libraries for the Cacao Flask API Server
 from werkzeug.security import generate_password_hash, check_password_hash
-from functools import wraps
-from PIL import Image
-import socket
-import datetime
-import jwt
-
+from flask_swagger_ui import get_swaggerui_blueprint
+from flask import Flask, request, send_file, jsonify
+from model import Detection, TempDetection, User
 from urllib.parse import urlparse
+from functools import wraps
+from db import db_init, db
+import tensorflow as tf
+from PIL import Image
+import secrets
+import random
+import socket
 import torch
-torch.set_num_threads(1)
+import uuid
 import io
 import os
-import secrets
-import uuid
-import random
-import tensorflow as tf
 
-from db import db_init, db
-from model import Detection, TempDetection, User
+import pandas as pd
+import torchvision.ops.boxes as boxes
+import cv2
+import numpy as np
 
-
+# Initialize the Flask-App
 app = Flask(__name__)
-# SQLAlchemy config. Read more: https://flask-sqlalchemy.palletsprojects.com/en/2.x/
+
+# Set SQLAlchemy config
 app.config['SECRET_KEY'] = secrets.token_hex(16)
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///detections.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db_init(app)
 
-app.config.update(SESSION_COOKIE_SAMESITE="None", SESSION_COOKIE_SECURE=True)
+# Swagger configs
+SWAGGER_URL = '/api/docs'
+API_URL = '/static/swagger.json'
+SWAGGERUI_BLUEPRINT = get_swaggerui_blueprint(
+    SWAGGER_URL,
+    API_URL,
+    config={
+        'app_name': "CAQAO Server"
+    }
+)
+app.register_blueprint(SWAGGERUI_BLUEPRINT)
 
+
+# Load the object detection and image classifier model
 MAX_DET = 50
-model = torch.hub.load('ultralytics/yolov5', 'custom', path="best.pt", force_reload=True)
+model = torch.hub.load('yolov5', 'custom', path="best.pt", source='local')
 model.max_det = MAX_DET
-
 cacao_image_classifier = tf.keras.models.load_model('xception_v2.h5')
+
+colors = {
+    'Very Dark Brown': (56,28,0),
+    'Brown': (150,75,0),
+    'Partly Purple': (156,68,172),
+    'Total Purple': (102,4,131),
+    'Slaty': (118, 134, 146),
+    'Mouldy': (109, 157, 92),
+    'Insect-damaged': (248, 180, 48),
+    'Germinated': (173, 141, 111)
+}
+
+def modify_boxes(results, image):
+   # Convert the results to a pandas dataframe and extract the first row
+    df = results.pandas().xyxy[0]
+    for i, row in df.iterrows():
+        # Extract the class index and bounding box coordinates
+        class_idx = int(row['class'])
+        class_name = row['name'].split("-")[0].strip() if row['name'] != 'Insect-damaged' else 'Insect-damaged'
+        x1, y1, x2, y2 = int(row['xmin']), int(row['ymin']), int(row['xmax']), int(row['ymax'])
+        # Draw the bounding box on the image using the class's color
+        # color = tuple(colors[class_idx])
+        try:
+            font_scale = 0.28 * (y2 - y1) / 30
+            cv2.putText(image, class_name, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, font_scale, colors[class_name], 3)
+            cv2.rectangle(image, (x1, y1), (x2, y2), colors[class_name], 15)
+        except KeyError:
+            cv2.rectangle(image, (x1, y1), (x2, y2), (0, 0, 255), 15)
+
+    return image
 
 @app.route("/assess", methods=["POST"])
 def assess():
-
+    """
+        API Endpoint for the assessment of dried fermented cacao beans.
+    """
     if request.method == "POST":
-
         # get cacao beans image and bean size from request
         image_file = request.files.get("image")
         image_bytes = image_file.read()
@@ -61,8 +106,10 @@ def assess():
 
         # reduce size=640 for faster inference
         results = model(image, size=640)
-        results.render()
-        image_detection = Image.fromarray(results.ims[0])
+        image_detection = modify_boxes(results, np.asarray(image))
+        image_detection = Image.fromarray(image_detection)
+        # results.render()
+        # image_detection = Image.fromarray(results.ims[0])
 
         # convert the image detection results to bytes
         with io.BytesIO() as output_bytes:
@@ -87,6 +134,9 @@ def assess():
     return get_json_response(temp_detection)
 
 def token_required(f):
+    """
+        Wrapper function to get the user token for a specific user.
+    """
     @wraps(f)
     def decorated(*args, **kwargs):
         token = None
@@ -106,7 +156,9 @@ def token_required(f):
 @app.route("/save_results", methods=["POST"])
 @token_required
 def save_results(current_user):
-
+    """
+        API Endpoint for saving the detections results.
+    """
     if request.method == "POST":
         # save the temporary detection to main detection table
 
@@ -148,6 +200,9 @@ def save_results(current_user):
 @app.route('/get_detection_with_id', methods=["POST"])
 @token_required
 def get_detection_with_id(current_user):
+    """
+        API Endpoint for getting a past detection results from a detection id.
+    """
     if request.method == "POST":
         id = int(request.form["cacaoDetectionId"])
         detection = Detection.query.filter_by(user_id=current_user.id, id=id).first()
@@ -157,6 +212,9 @@ def get_detection_with_id(current_user):
 @app.route('/detections')
 @token_required
 def get_detections(current_user):
+    """
+        API Endpoint to get all the detection results for a specific user.
+    """
     user_id = current_user.id
     detections = Detection.query.filter_by(user_id=user_id).order_by(Detection.date.desc()).all()
     detection_list = [
@@ -176,10 +234,14 @@ def get_detections(current_user):
          'germinated': detection.germinated, \
          'beanGrade': detection.beanGrade, \
          'date': detection.date } for detection in detections]
-    return jsonify(detection_list)
+    
+    return jsonify(detection_list), 200
 
 @app.route('/detections/<string:filename>')
 def get_image(filename):
+    """
+        API Endpoint for returning a cacao bean image.
+    """
     detection = Detection.query.filter_by(filename=filename).first()
     if not detection:
         detection = TempDetection.query.filter_by(filename=filename).first()
@@ -188,7 +250,9 @@ def get_image(filename):
 
 @app.route('/validate_image', methods=['POST'])
 def validate_image():
-    
+    """
+        API Endpoint for validating an input image (must contain an image with cacao beans).
+    """
     # get cacao beans image and bean size from request
     image_file = request.files.get("image")
     image_bytes = image_file.read()
@@ -212,17 +276,20 @@ def validate_image():
             
 @app.route('/register', methods=['POST'])
 def create_user():
+    """
+        API endpoint for registering a user.
+    """
     data = request.get_json()
     hashed_password = generate_password_hash(data['password'], method='sha256')
 
     if is_username_exists(data['username']):
         # username is already taken
-       return jsonify({'message' : 'Username is already taken.', 'status': 401})
+       return jsonify({'message' : 'Username is already taken.', 'status': 401}), 401
     
     if is_user_email_exists(data['email']):
         # email is already taken
-        return jsonify({'message' : 'Email is already taken.', 'status': 402})
-    
+        return jsonify({'message' : 'Email is already taken.', 'status': 402}), 402
+     
     # create and add new user to database
     new_user = User(
         public_id=str(uuid.uuid4()), 
@@ -234,7 +301,7 @@ def create_user():
     db.session.add(new_user)
     db.session.commit()
 
-    return jsonify({'message' : 'New user created!', 'status': 200})
+    return jsonify({'message' : 'New user created!', 'status': 200}), 200
     
 @app.route('/login', methods=['POST'])
 def login():
@@ -246,14 +313,14 @@ def login():
     user = User.query.filter_by(username=auth['username']).first()
 
     if not user:
-        return jsonify({'message' : 'Wrong email or password', 'status': 401, 'token': ''})
+        return jsonify({'message' : 'Wrong email or password', 'status': 401, 'token': ''}), 401
 
     # check if entered hashed password matches the hashed password in the database
     if check_password_hash(user.password, auth['password']):
         token = user.public_id
-        return jsonify({'message' : 'User Authenticated', 'status': 200, 'token': token})
+        return jsonify({'message' : 'User Authenticated', 'status': 200, 'token': token}), 200
 
-    return jsonify({'message' : 'Wrong email or password', 'status': 401, 'token': ''})
+    return jsonify({'message' : 'Wrong email or password', 'status': 401, 'token': ''}), 401
 
 @app.route('/delete', methods=['POST'])
 @token_required
@@ -343,10 +410,16 @@ def get_class_detection_counts(results):
     return class_counts
 
 def get_bean_grade(class_count, bean_size):
+
+    # get defects count from the detection
     slaty, mouldy = class_count["slaty"], class_count["mouldy"]
     insect_infested, germinated = class_count["insectDamaged"], class_count["germinated"]
+
+    # variables to hold the letter code and numerical code (ie. 1A)
     letter_code, num_code = "", ""
-    tresholdNumCode = 0.03 * MAX_DET
+
+    # threshold for numerical code to be grade 2 
+    tresholdNumCode = 0.03 * MAX_DET # 3% of 50
 
     if (slaty <= tresholdNumCode) and (mouldy <= tresholdNumCode) and \
         ((insect_infested + germinated) <= tresholdNumCode):

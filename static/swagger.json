@@ -1,0 +1,453 @@
+{
+    "openapi": "3.0.0",
+    "info": {
+      "description": "Team 19 - Design Project 2",
+      "version": "1.0.0",
+      "title": "CAQAO REST-API Server",
+      "license": {
+        "name": "MIT",
+        "url": "https://opensource.org/licenses/MIT"
+      }
+    },
+
+    "tags": [
+        {
+            "name": "Products API",
+            "description": "Test API"
+        }
+    ],
+
+    "servers": [
+        {
+            "url": "/"
+        }
+    ],
+
+    "components": {
+        "schemas": {
+            "User": {
+                "type": "object",
+                "properties": {
+                    "first_name": {
+                        "type": "string"
+                    },
+                    "last_name": {
+                        "type": "string"
+                    },
+                    "email": {
+                        "type": "string"
+                    },
+                    "username": {
+                        "type": "string"
+                    },
+                    "password": {
+                        "type": "string"
+                    }
+                }
+            },
+
+            "Detection":{
+              "type": "object",
+              "properties" :{
+                "user_id": {
+                    "type": "integer"
+                    },
+                "image": {
+                    "type": "binary"
+                    },
+                "filename": {
+                    "type": "string"
+                },
+                "mimetype": {
+                    "type": "string"
+                },
+                "beanGrade": {
+                    "type": "integer"
+                },
+                "very_dark_brown": {
+                    "type": "integer"
+                },
+                "brown": {
+                    "type": "integer"
+                },
+                "partly_purple": {
+                    "type": "integer"
+                },
+                "total_purple": {
+                    "type": "integer"
+                },
+                "g1": {
+                    "type": "integer"
+                },
+                "g2": {
+                    "type": "integer"
+                },
+                "g3": {
+                    "type": "integer"
+                },
+                "g4": {
+                    "type": "integer"
+                },
+                "mouldy": {
+                    "type": "integer"
+                },
+                "insect_damaged": {
+                    "type": "integer"
+                },
+                "slaty": {
+                    "type": "integer"
+                },
+                "germinated": {
+                    "type": "integer"
+                }
+               }
+            }
+        }
+    },
+
+    "paths": {
+        "/register": {
+            "post": {
+              "tags": [
+                "Registration"
+              ],
+              "summary": "Register a new CAQAO user",
+              "requestBody": {
+                "description": "JSON object containing username and password",
+                "required": true,
+                "content": {
+                  "application/json": {
+                    "schema": {
+                      "type": "object",
+                      "properties": {
+                        "first_name": {
+                            "type": "string"
+                        },
+                        "last_name": {
+                            "type": "string"
+                        },
+                        "email": {
+                            "type": "string"
+                        },
+                        "username": {
+                          "type": "string"
+                        },
+                        "password": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "username",
+                        "password",
+                        "first_name",
+                        "last_name",
+                        "email"
+                      ]
+                    }
+                  }
+                }
+              },
+              "responses": {
+                "201": {
+                  "description": "User registered successfully",
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "type": "object",
+                        "properties": {
+                          "message": {
+                            "type": "string",
+                            "example": "User registered successfully"
+                          },
+                          "status": {
+                            "type": "integer",
+                            "example": 200
+                          }
+                        },
+                        "required": [
+                          "message",
+                          "status"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "400": {
+                  "description": "Bad request - invalid JSON payload or missing fields",
+                  "content": {
+                    "application/json": {
+                      "schema": {
+                        "type": "object",
+                        "properties": {
+                          "message": {
+                            "type": "string",
+                            "example": "Invalid JSON payload or missing fields"
+                          },
+                          "status": {
+                            "type": "integer",
+                            "example": 400
+                          }
+                        },
+                        "required": [
+                          "message",
+                          "status"
+                        ]
+                      }
+                    }
+                  }
+                }
+              }
+            }
+        },
+
+        "/login": {
+            "post": {
+                "tags": ["Login"],
+                "summary": "Login a CAQAO user",
+                "requestBody": {
+                    "description": "JSON object containing username and password",
+                    "required": true,
+                    "content": {
+                      "application/json": {
+                        "schema": {
+                          "type": "object",
+                          "properties": {
+                            "username": {
+                              "type": "string"
+                            },
+                            "password": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "username",
+                            "password"
+                          ]
+                        }
+                      }
+                    }
+                  },
+                  "responses": {
+                    "200": {
+                      "description": "User Login Successfully",
+                      "content": {
+                        "application/json": {
+                          "schema": {
+                            "type": "object",
+                            "properties": {
+                              "message": {
+                                "type": "string",
+                                "example": "User Login Successfully"
+                              },
+                              "token": {
+                                "type": "string",
+                                "example": "94044486-4410-4711-a54c-1543c3711ff4"
+                              },
+                              "status": {
+                                "type": "integer",
+                                "example": 200
+                              }
+                            },
+                            "required": [
+                              "message",
+                              "token",
+                              "status"
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "400": {
+                      "description": "Bad request - invalid JSON payload or missing fields",
+                      "content": {
+                        "application/json": {
+                          "schema": {
+                            "type": "object",
+                            "properties": {
+                              "message": {
+                                "type": "string",
+                                "example": "Invalid JSON payload or missing fields"
+                              },
+                              "status": {
+                                "type": "integer",
+                                "example": 400
+                              }
+                            },
+                            "required": [
+                              "message",
+                              "status"
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "401": {
+                        "description": "Wrong Username or Password",
+                        "content": {
+                          "application/json": {
+                            "schema": {
+                              "type": "object",
+                              "properties": {
+                                "message": {
+                                  "type": "string",
+                                  "example": "Wrong Username or Password"
+                                },
+                                "token": {
+                                    "type": "string",
+                                    "example": ""
+                                },
+                                "status": {
+                                  "type": "integer",
+                                  "example": 401
+                                }
+                              },
+                              "required": [
+                                "message",
+                                "status"
+                              ]
+                            }
+                          }
+                        }
+                    }
+                }
+            }
+        },
+    
+        "/detections": {
+            "get": {
+                "tags": ["Detections"],
+                "summary": "Get CAQAO Detections of a certain user.",
+                "parameters": [
+                    {
+                      "in": "header",
+                      "name": "x-access-token",
+                      "required": true,
+                      "schema": {
+                        "type": "string"
+                      }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                      "description": "Detections List",
+                      "content": {
+                        "application/json": {
+                          "schema": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties":{
+                                    "id": {
+                                        "type": "integer",
+                                        "example": 1
+                                    },
+                                    "img_src_url": {
+                                        "type": "string",
+                                        "example": "http://localhost:5000/detections/4b18df51-7f65-402a-9d78-f19757af21c14997.jpg"
+                                    },
+                                    "g1": {
+                                        "type": "integer",
+                                        "example": 1
+                                    },
+                                    "g2": {
+                                        "type": "integer",
+                                        "example": 1
+                                    },
+                                    "g3": {
+                                        "type": "integer",
+                                        "example": 1
+                                    },
+                                    "g4": {
+                                        "type": "integer",
+                                        "example": 1
+                                    },
+                                    "very_dark_brown": {
+                                        "type": "integer",
+                                        "example": 1
+                                    },
+                                    "brown": {
+                                        "type": "integer",
+                                        "example": 1
+                                    },
+                                    "partly_purple": {
+                                        "type": "integer",
+                                        "example": 1
+                                    },
+                                    "total_purple": {
+                                        "type": "integer",
+                                        "example": 1
+                                    },
+                                    "mouldy": {
+                                        "type": "integer",
+                                        "example": 1
+                                    },
+                                    "slaty": {
+                                        "type": "integer",
+                                        "example": 1
+                                    },
+                                    "insect_damaged": {
+                                        "type":"integer",
+                                        "example": 1
+                                    },
+                                    "germinated": {
+                                        "type":"integer",
+                                        "example": 1
+                                    }
+                                }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "401":{
+                        "description": "Invalid Access Token",
+                        "content": {
+                          "application/json": {
+                            "schema": {
+                              "type": "object",
+                              "properties": {
+                                "message": {
+                                  "type": "string",
+                                  "example": "Token is invalid!"
+                                }
+                              }
+                            }
+                          }
+                        }
+                    }
+                }
+            }
+        },
+
+        "/assess": {
+            "post": {
+              "tags": ["Assess"],
+              "summary": "Assess Dried Fermented Cacao Beans",
+              "consumes": [
+                "multipart/form-data"
+              ],
+              "parameters": [
+                {
+                  "name": "image",
+                  "in": "formData",
+                  "description": "Image of Dried Fermented Cacao Beans in a Guillotine",
+                  "required": true,
+                  "type": "file"
+                },
+                {
+                  "name": "beanSize",
+                  "in": "formData",
+                  "description": "Bean Size (number of beans per 100g)",
+                  "required": true,
+                  "type": "integer"
+                }
+              ],
+              "responses": {
+                "200": {
+                  "description": "Successful response"
+                }
+              }
+            }
+        }
+    }  
+}
