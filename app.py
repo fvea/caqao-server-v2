@@ -10,7 +10,6 @@ import tensorflow as tf
 from PIL import Image
 import secrets
 import random
-import socket
 import torch
 import uuid
 import io
