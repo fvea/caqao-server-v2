@@ -53,3 +53,4 @@ SQLAlchemy==2.0.4
 Flask-SQLAlchemy==3.0.3
 gunicorn
 flask-swagger-ui
+urllib3[secure]
