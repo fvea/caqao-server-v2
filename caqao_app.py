@@ -51,7 +51,7 @@ model.iou = 0.5
 model.agnostic = True  # NMS class-agnostic
 model.multi_label = False
 model.max_det = MAX_DET
-model.cuda()  # GPU
+# model.cuda()  # GPU
 cacao_image_classifier = tf.keras.models.load_model('mobnet_0002.h5')
 
 colors = {
