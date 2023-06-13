@@ -48,9 +48,4 @@ mss  # screenshots
 albumentations>=1.0.3
 pycocotools>=2.0.6  # COCO mAP
 
-Flask
-Flask-SQLAlchemy
-flask-swagger-ui
-urllib3
-Werkzeug
 gunicorn
