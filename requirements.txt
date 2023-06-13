@@ -51,6 +51,7 @@ pycocotools>=2.0.6  # COCO mAP
 Flask==2.2.3
 SQLAlchemy==2.0.4
 Flask-SQLAlchemy==3.0.3
+flask-sqlalchemy
 gunicorn
 flask-swagger-ui
 urllib3[secure]
