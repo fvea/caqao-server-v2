@@ -2,6 +2,8 @@
 # Usage: pip install -r requirements.txt
 
 # Base ------------------------------------------------------------------------
+Flask
+gunicorn
 gitpython>=3.1.30
 matplotlib>=3.3
 numpy>=1.18.5
@@ -47,6 +49,3 @@ tritonclient[all]~=2.24.0
 mss  # screenshots
 albumentations>=1.0.3
 pycocotools>=2.0.6  # COCO mAP
-
-Flask
-gunicorn
