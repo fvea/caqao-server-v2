@@ -145,4 +145,4 @@ wheel==0.38.4
 wincertstore==0.2
 wrapt==1.14.1
 wurlitzer==3.0.3
-zipp==3.11.0
+zipp
