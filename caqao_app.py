@@ -46,8 +46,13 @@ app.register_blueprint(SWAGGERUI_BLUEPRINT)
 # Load the object detection and image classifier model
 MAX_DET = 50
 model = torch.hub.load('yolov5', 'custom', path="best.pt", source='local')
+model.conf = 0.3
+model.iou = 0.5
+model.agnostic = True  # NMS class-agnostic
+model.multi_label = False
 model.max_det = MAX_DET
-cacao_image_classifier = tf.keras.models.load_model('xception_v2.h5')
+model.cuda()  # GPU
+cacao_image_classifier = tf.keras.models.load_model('mobnet_0002.h5')
 
 colors = {
     'Very Dark Brown': (56,28,0),
@@ -65,7 +70,7 @@ def modify_boxes(results, image):
     df = results.pandas().xyxy[0]
     for i, row in df.iterrows():
         # Extract the class index and bounding box coordinates
-        class_idx = int(row['class'])
+        # class_idx = int(row['class'])
         class_name = row['name'].split("-")[0].strip() if row['name'] != 'Insect-damaged' else 'Insect-damaged'
         x1, y1, x2, y2 = int(row['xmin']), int(row['ymin']), int(row['xmax']), int(row['ymax'])
         # Draw the bounding box on the image using the class's color
@@ -106,6 +111,7 @@ def assess():
 
         # reduce size=640 for faster inference
         results = model(image, size=640)
+
         image_detection = modify_boxes(results, np.asarray(image))
         image_detection = Image.fromarray(image_detection)
         # results.render()
@@ -118,7 +124,8 @@ def assess():
 
         # get cacao class counts and compute bean grade
         class_counts = get_class_detection_counts(results)
-        bean_grade = get_bean_grade(class_counts, bean_size)
+        detection_len = len(results.pandas().xyxy[0])
+        bean_grade = get_bean_grade(class_counts, bean_size, detection_len)
 
         # temporarily save the detection result
         temp_detection = TempDetection(
@@ -318,9 +325,13 @@ def login():
     # check if entered hashed password matches the hashed password in the database
     if check_password_hash(user.password, auth['password']):
         token = user.public_id
-        return jsonify({'message' : 'User Authenticated', 'status': 200, 'token': token}), 200
-
-    return jsonify({'message' : 'Wrong email or password', 'status': 401, 'token': ''}), 401
+        username = user.username
+        email = user.email
+        return jsonify({'message' : 'User Authenticated', 'status': 200, 
+                        'token': token, 'username': username, 'email': email}), 200
+    
+    return jsonify({'message' : 'Wrong email or password', 
+                    'status': 401, 'token': '', username: '', email: ''}), 401
 
 @app.route('/delete', methods=['POST'])
 @token_required
@@ -379,6 +390,10 @@ def get_class_detection_counts(results):
         "germinated" : 0,
     }
 
+    # return empty detections if detections is not equal to 50
+    if len(results.pandas().xyxy[0]) != MAX_DET:
+        return class_counts
+
     for key, value in results.pandas().xyxy[0].name.value_counts().items():
         key = key.lower()
         key_split = key.split("-")
@@ -409,7 +424,10 @@ def get_class_detection_counts(results):
 
     return class_counts
 
-def get_bean_grade(class_count, bean_size):
+def get_bean_grade(class_count, bean_size, detection_len):
+
+    if detection_len != MAX_DET:
+        return "--"
 
     # get defects count from the detection
     slaty, mouldy = class_count["slaty"], class_count["mouldy"]
@@ -436,10 +454,10 @@ def get_bean_grade(class_count, bean_size):
 
     return num_code + letter_code
 
-def is_cacao(img, threshold=0.95):
+def is_cacao(img, threshold=0.5):
 
     class_names = ['cacao', 'noncacao']
-    img_resized = img.resize((150, 150))
+    img_resized = img.resize((128, 128))
 
     img_array = tf.keras.preprocessing.image.img_to_array(img_resized)
     img_array = tf.expand_dims(img_array, 0) # create a bactch
@@ -449,7 +467,7 @@ def is_cacao(img, threshold=0.95):
     raw_prediction = cacao_image_classifier.predict(img_array)[0][0]
     prediction = 1 if raw_prediction > threshold else 0
     class_name = class_names[prediction]
-    confidence = (1 - raw_prediction) * 100 if prediction == 0 else (raw_prediction * 100)
+    # confidence = (1 - raw_prediction) * 100 if prediction == 0 else (raw_prediction * 100)
 
     return class_name == 'cacao'
 
@@ -473,6 +491,6 @@ if __name__ == "__main__":
     ip_address = socket.gethostbyname(hostname)
     FLASK_IP_ADDR = ip_address
 
-    MAX_DET = 50
-    model.max_det = MAX_DET
+    # MAX_DET = 50
+    # model.max_det = MAX_DET
     app.run(host="0.0.0.0", port=5000, debug=True)
